@@ -1,4 +1,3 @@
-# Copyright 2017 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,16 +22,17 @@ import sys
 
 import tensorflow as tf
 
+
 _CSV_COLUMNS = [
-    'Sentiment', 'Magnitude', 'Favorites', 'ReTweets'
+    'sentiment', 'magnitude', 'favorites', 'retweets','Favorites'
 ]
 
-_CSV_COLUMN_DEFAULTS = [[0], [0], [0], [0]]
+_CSV_COLUMN_DEFAULTS = [[0.0], [0.0], [0.0], [0.0], ['']]
 
 parser = argparse.ArgumentParser()
 
 parser.add_argument(
-    '--model_dir', type=str, default='/tmp/census_model',
+    '--model_dir', type=str, default='./tmp/twit_model',
     help='Base directory for the model.')
 
 parser.add_argument(
@@ -50,11 +50,15 @@ parser.add_argument(
     '--batch_size', type=int, default=40, help='Number of examples per batch.')
 
 parser.add_argument(
-    '--train_data', type=str, default='/tmp/census_data/adult.data',
+    '--train_data', type=str, default='./tmp/trainingset.csv',
     help='Path to the training data.')
 
 parser.add_argument(
-    '--test_data', type=str, default='/tmp/census_data/adult.test',
+    '--test_data', type=str, default='./tmp/testset.csv',
+    help='Path to the test data.')
+
+parser.add_argument(
+    '--predict_data',type=str, default='./tmp/predictset.csv',
     help='Path to the test data.')
 
 _NUM_EXAMPLES = {
@@ -65,26 +69,26 @@ _NUM_EXAMPLES = {
 
 def build_model_columns():
   """Builds a set of wide and deep feature columns."""
-  # Continuous columns
   sentiment = tf.feature_column.numeric_column('sentiment')
   magnitude = tf.feature_column.numeric_column('magnitude')
   favorites = tf.feature_column.numeric_column('favorites')
   retweets = tf.feature_column.numeric_column('retweets')
   
-  # Transformations.
-  sentiment_buckets = tf.feature_column.bucketized_column(
-      sentiment, boundaries=[-1, -0.5, 0, 0.5, 1]
+  
+  sentiment_buckets = tf.feature_column.bucketized_column(sentiment, boundaries=[-1.0, -0.5, 0.0, 0.5, 1.0])
+  magnitude_buckets = tf.feature_column.bucketized_column(magnitude, boundaries=[0, 10, 20, 30, 40])
+  favorites_buckets = tf.feature_column.bucketized_column(favorites, boundaries=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50])
+  retweets_buckets = tf.feature_column.bucketized_column(retweets, boundaries=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50])
 
-  # Wide columns and deep columns.
   base_columns = [
-      sentiment_buckets, magnitude, favorites, retweets
+      sentiment_buckets, magnitude_buckets, favorites_buckets, retweets_buckets
   ]
 
   crossed_columns = [
       tf.feature_column.crossed_column(
-          [magnitude, sentiment_buckets], hash_bucket_size=1000),
+          [sentiment_buckets, magnitude_buckets], hash_bucket_size=1000),
       tf.feature_column.crossed_column(
-          [sentiment_buckets, retweets, favorites], hash_bucket_size=1000),
+          [sentiment_buckets, retweets_buckets, favorites_buckets], hash_bucket_size=1000),
   ]
 
   wide_columns = base_columns + crossed_columns
@@ -156,6 +160,16 @@ def input_fn(data_file, num_epochs, shuffle, batch_size):
   dataset = dataset.batch(batch_size)
   return dataset
 
+def model_fn(features,labels,mode,params):
+  # Compute predictions.
+  predicted_classes = tf.argmax(logits, 1)
+  if mode == tf.estimator.ModeKeys.PREDICT:
+    predictions = {
+      'class_ids': predicted_classes[:, tf.newaxis],
+      'probabilities': tf.nn.softmax(logits),
+      'logits': logits,
+      }
+  return tf.estimator.EstimatorSpec(mode,predictions=predictions)
 
 def main(unused_argv):
   # Clean up the model directory if present
@@ -163,7 +177,7 @@ def main(unused_argv):
   model = build_estimator(FLAGS.model_dir, FLAGS.model_type)
 
   # Train and evaluate the model every `FLAGS.epochs_per_eval` epochs.
-  for n in range(FLAGS.train_epochs // FLAGS.epochs_per_eval):
+  for n in range(0,2):
     model.train(input_fn=lambda: input_fn(
         FLAGS.train_data, FLAGS.epochs_per_eval, True, FLAGS.batch_size))
 
@@ -176,8 +190,8 @@ def main(unused_argv):
 
     for key in sorted(results):
       print('%s: %s' % (key, results[key]))
-
-
+    result2 = model.evaluate(input_fn=lambda: input_fn(FLAGS.predict_data,1,False, FLAGS.batch_size))
+      
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
   FLAGS, unparsed = parser.parse_known_args()
